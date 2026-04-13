@@ -5,8 +5,8 @@ import ta
 import sqlite3
 from streamlit_autorefresh import st_autorefresh
 
-# ---------------- AUTO REFRESH ----------------
-st_autorefresh(interval=10000, key="refresh")  # refresh every 10 sec
+# AUTO REFRESH
+st_autorefresh(interval=10000, key="refresh")
 
 st.set_page_config(layout="wide")
 st.title("📊 Smart Trading Tool")
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS portfolio (
 ''')
 conn.commit()
 
-# ---------------- ANALYSIS FUNCTION ----------------
+# ---------------- ANALYSIS ----------------
 def analyze_stock(ticker):
     try:
         data = yf.download(ticker, period="3mo", progress=False)
@@ -58,16 +58,49 @@ def analyze_stock(ticker):
         stop = round(price * 0.97, 2)
 
         if score >= 6:
-            suggestion = "BUY MORE"
+            suggestion = "BUY"
         elif score >= 4:
             suggestion = "HOLD"
         else:
-            suggestion = "SELL"
+            suggestion = "AVOID"
 
-        return price, target, stop, suggestion, ", ".join(reasons)
+        return price, target, stop, suggestion, ", ".join(reasons), score
 
     except:
         return None
+
+# ---------------- TOP STOCK SCANNER ----------------
+st.subheader("🚀 Top Buy Opportunities")
+
+stock_list = [
+    "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
+    "LT.NS","SBIN.NS","AXISBANK.NS","WIPRO.NS","BHARTIARTL.NS",
+    "ASIANPAINT.NS","MARUTI.NS","HCLTECH.NS","SUNPHARMA.NS","ITC.NS"
+]
+
+scan_results = []
+
+if st.button("🔍 Scan Market"):
+    for stock in stock_list:
+        result = analyze_stock(stock)
+
+        if result:
+            price, target, stop, suggestion, reason, score = result
+
+            if score >= 5:  # only strong ones
+                scan_results.append({
+                    "Stock": stock,
+                    "Buy Price": price,
+                    "Target": target,
+                    "Stop Loss": stop,
+                    "Suggestion": suggestion,
+                    "Score": score,
+                    "Reason": reason
+                })
+
+    df_scan = pd.DataFrame(scan_results).sort_values(by="Score", ascending=False)
+
+    st.dataframe(df_scan, use_container_width=True)
 
 # ---------------- ADD STOCK ----------------
 st.subheader("➕ Add Stock")
@@ -95,7 +128,7 @@ for row in stocks:
         conn.commit()
         st.experimental_rerun()
 
-# ---------------- PORTFOLIO ANALYSIS ----------------
+# ---------------- PORTFOLIO ----------------
 st.subheader("📊 Portfolio Analysis")
 
 rows = []
@@ -107,7 +140,7 @@ for row in stocks:
     result = analyze_stock(ticker)
 
     if result:
-        current, target, stop, suggestion, reason = result
+        current, target, stop, suggestion, reason, score = result
         pnl = round(((current - buy_price) / buy_price) * 100, 2)
 
         rows.append({
