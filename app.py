@@ -8,7 +8,7 @@ st.title("🚀 Smart Trading Dashboard")
 
 st.caption(f"Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-# ---------------- STOCK LIST (REDUCED FOR STABILITY) ----------------
+# ---------------- STOCK LIST ----------------
 stock_list = [
     "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
     "LT.NS","SBIN.NS","AXISBANK.NS","BHARTIARTL.NS","ITC.NS",
@@ -17,26 +17,26 @@ stock_list = [
     "CIPLA.NS","ULTRACEMCO.NS"
 ]
 
-# ---------------- SAFE FETCH ----------------
-def get_data(ticker):
+# ---------------- CACHE DATA ----------------
+@st.cache_data(ttl=300)
+def fetch_data():
     try:
-        data = yf.download(ticker, period="3mo", progress=False)
-        if data.empty:
-            return None
+        data = yf.download(stock_list, period="3mo", group_by="ticker", progress=False)
         return data
     except:
         return None
 
 # ---------------- ANALYSIS ----------------
-def analyze_stock(ticker):
-    data = get_data(ticker)
-    if data is None:
-        return None
-
+def analyze_stock(data, ticker):
     try:
-        price = float(data["Close"].iloc[-1])
-        ma20 = data["Close"].rolling(20).mean().iloc[-1]
-        ma50 = data["Close"].rolling(50).mean().iloc[-1]
+        df = data[ticker]
+
+        if df.empty:
+            return None
+
+        price = float(df["Close"].iloc[-1])
+        ma20 = df["Close"].rolling(20).mean().iloc[-1]
+        ma50 = df["Close"].rolling(50).mean().iloc[-1]
 
         score = 0
 
@@ -44,10 +44,10 @@ def analyze_stock(ticker):
             score += 3
         if price > ma20:
             score += 2
-        if price > data["Close"].iloc[-5]:
+        if price > df["Close"].iloc[-5]:
             score += 2
 
-        recent_high = data["High"].rolling(20).max().iloc[-1]
+        recent_high = df["High"].rolling(20).max().iloc[-1]
         if price >= recent_high * 0.98:
             score += 3
 
@@ -64,28 +64,33 @@ def analyze_stock(ticker):
     except:
         return None
 
-# ---------------- SCAN ----------------
+# ---------------- UI ----------------
 st.subheader("📊 Top Opportunities")
 
 view = st.radio("Select View", ["Top 10", "Top 20"])
 
 if st.button("🔍 Scan Market"):
-    results = []
 
-    with st.spinner("Scanning..."):
+    data = fetch_data()
+
+    if data is None:
+        st.error("Data provider issue. Try again later.")
+    else:
+        results = []
+
         for stock in stock_list:
-            res = analyze_stock(stock)
+            res = analyze_stock(data, stock)
             if res:
                 results.append(res)
 
-    if results:
-        df = pd.DataFrame(results).sort_values(by="Confidence", ascending=False)
+        if results:
+            df = pd.DataFrame(results).sort_values(by="Confidence", ascending=False)
 
-        if view == "Top 10":
-            df = df.head(10)
+            if view == "Top 10":
+                df = df.head(10)
+            else:
+                df = df.head(20)
+
+            st.dataframe(df, use_container_width=True)
         else:
-            df = df.head(20)
-
-        st.dataframe(df, use_container_width=True)
-    else:
-        st.warning("Data fetch issue. Try again in a few seconds.")
+            st.warning("Partial data issue. Some stocks skipped.")
