@@ -1,7 +1,6 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import ta
 import sqlite3
 from streamlit_autorefresh import st_autorefresh
 
@@ -9,7 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 st_autorefresh(interval=15000, key="refresh")
 
 st.set_page_config(layout="wide")
-st.title("📊 Smart Trading Tool (Pro Version)")
+st.title("📊 Smart Trading Tool")
 
 # ---------------- DATABASE ----------------
 conn = sqlite3.connect("portfolio.db", check_same_thread=False)
@@ -23,7 +22,7 @@ CREATE TABLE IF NOT EXISTS portfolio (
 ''')
 conn.commit()
 
-# ---------------- ANALYSIS FUNCTION ----------------
+# ---------------- SIMPLE ANALYSIS ----------------
 def analyze_stock(ticker):
     try:
         data = yf.download(ticker, period="3mo", progress=False)
@@ -31,68 +30,50 @@ def analyze_stock(ticker):
         if data.empty:
             return None
 
-        data["RSI"] = ta.momentum.RSIIndicator(data["Close"]).rsi()
-        data["MA50"] = data["Close"].rolling(50).mean()
-        data["MA200"] = data["Close"].rolling(200).mean()
-
         latest = data.iloc[-1]
+
+        price = float(latest["Close"])
+
+        ma50 = data["Close"].rolling(50).mean().iloc[-1]
+        ma200 = data["Close"].rolling(200).mean().iloc[-1]
 
         score = 0
         reasons = []
 
-        price = float(latest["Close"])
-
-        # TREND
-        if latest["Close"] > latest["MA200"]:
+        # Trend
+        if price > ma200:
             score += 3
-            reasons.append("Strong uptrend")
-        if latest["Close"] > latest["MA50"]:
+            reasons.append("Uptrend")
+        if price > ma50:
             score += 2
             reasons.append("Above MA50")
 
-        # RSI
-        if 45 < latest["RSI"] < 65:
+        # Momentum
+        if data["Close"].iloc[-1] > data["Close"].iloc[-5]:
             score += 2
-            reasons.append("Healthy RSI")
-        elif latest["RSI"] < 35:
-            score += 1
-            reasons.append("Oversold bounce possible")
-        elif latest["RSI"] > 70:
-            score -= 2
-            reasons.append("Overbought")
+            reasons.append("Positive momentum")
 
-        # BREAKOUT
-        recent_high = data["High"].rolling(20).max().iloc[-1]
-        if price >= recent_high * 0.98:
-            score += 2
-            reasons.append("Near breakout")
-
-        # VOLUME
-        if data["Volume"].iloc[-1] > data["Volume"].rolling(10).mean().iloc[-1]:
-            score += 1
-            reasons.append("Volume support")
-
-        confidence = max(10, min(100, score * 10))
+        # Simple confidence
+        confidence = min(100, score * 10)
 
         target = round(price * 1.05, 2)
-        stop = round(price * 0.96, 2)
+        stop = round(price * 0.95, 2)
 
-        if score >= 7:
-            suggestion = "STRONG BUY"
-        elif score >= 5:
+        # Suggestion
+        if score >= 5:
             suggestion = "BUY"
         elif score >= 3:
-            suggestion = "WATCH"
+            suggestion = "HOLD"
         else:
             suggestion = "AVOID"
 
-        return price, target, stop, suggestion, ", ".join(reasons), score, confidence
+        return price, target, stop, suggestion, ", ".join(reasons), confidence
 
     except:
         return None
 
 # ---------------- TOP STOCK SCANNER ----------------
-st.subheader("🚀 Top Buy Opportunities")
+st.subheader("🚀 Top Stocks (Auto Ranked)")
 
 stock_list = [
     "RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ICICIBANK.NS",
@@ -100,32 +81,30 @@ stock_list = [
     "ASIANPAINT.NS","MARUTI.NS","HCLTECH.NS","SUNPHARMA.NS","ITC.NS"
 ]
 
-scan_results = []
-
 if st.button("🔍 Scan Market"):
+    results = []
+
     for stock in stock_list:
         result = analyze_stock(stock)
 
         if result:
-            price, target, stop, suggestion, reason, score, confidence = result
+            price, target, stop, suggestion, reason, confidence = result
 
-            # 🔥 Relaxed filter (so you always see results)
-            if score >= 3:
-                scan_results.append({
-                    "Stock": stock,
-                    "Buy Price": price,
-                    "Target": target,
-                    "Stop Loss": stop,
-                    "Confidence %": confidence,
-                    "Suggestion": suggestion,
-                    "Reason": reason
-                })
+            results.append({
+                "Stock": stock,
+                "Buy Price": price,
+                "Target": target,
+                "Stop Loss": stop,
+                "Confidence %": confidence,
+                "Suggestion": suggestion,
+                "Reason": reason
+            })
 
-    if len(scan_results) > 0:
-        df_scan = pd.DataFrame(scan_results).sort_values(by="Confidence %", ascending=False)
-        st.dataframe(df_scan, use_container_width=True)
-    else:
-        st.info("Market is weak right now. No strong setups found.")
+    if len(results) > 0:
+        df = pd.DataFrame(results).sort_values(by="Confidence %", ascending=False)
+
+        # Show TOP 10 always
+        st.dataframe(df.head(10), use_container_width=True)
 
 # ---------------- ADD STOCK ----------------
 st.subheader("➕ Add Stock")
@@ -153,7 +132,7 @@ for row in stocks:
         conn.commit()
         st.experimental_rerun()
 
-# ---------------- PORTFOLIO ANALYSIS ----------------
+# ---------------- PORTFOLIO ----------------
 st.subheader("📊 Portfolio Analysis")
 
 rows = []
@@ -165,7 +144,7 @@ for row in stocks:
     result = analyze_stock(ticker)
 
     if result:
-        current, target, stop, suggestion, reason, score, confidence = result
+        current, target, stop, suggestion, reason, confidence = result
         pnl = round(((current - buy_price) / buy_price) * 100, 2)
 
         rows.append({
