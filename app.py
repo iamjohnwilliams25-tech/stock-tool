@@ -98,9 +98,11 @@ if st.button("🔍 Scan Market"):
                     "Reason": reason
                 })
 
+    if len(scan_results) > 0:
     df_scan = pd.DataFrame(scan_results).sort_values(by="Score", ascending=False)
-
     st.dataframe(df_scan, use_container_width=True)
+else:
+    st.warning("No strong stocks found right now. Try again later.")
 
 # ---------------- ADD STOCK ----------------
 st.subheader("➕ Add Stock")
