@@ -3,17 +3,15 @@ import yfinance as yf
 import pandas as pd
 import ta
 import sqlite3
-import time
+from streamlit_autorefresh import st_autorefresh
+
+# ---------------- AUTO REFRESH ----------------
+st_autorefresh(interval=10000, key="refresh")  # refresh every 10 sec
 
 st.set_page_config(layout="wide")
-
 st.title("📊 Smart Trading Tool")
 
-# AUTO REFRESH
-time.sleep(5)
-st.experimental_rerun()
-
-# DB
+# ---------------- DATABASE ----------------
 conn = sqlite3.connect("portfolio.db", check_same_thread=False)
 c = conn.cursor()
 
@@ -25,60 +23,65 @@ CREATE TABLE IF NOT EXISTS portfolio (
 ''')
 conn.commit()
 
-# ANALYSIS
+# ---------------- ANALYSIS FUNCTION ----------------
 def analyze_stock(ticker):
-    data = yf.download(ticker, period="3mo")
+    try:
+        data = yf.download(ticker, period="3mo", progress=False)
 
-    if data.empty:
+        if data.empty:
+            return None
+
+        data["RSI"] = ta.momentum.RSIIndicator(data["Close"]).rsi()
+        data["MA50"] = data["Close"].rolling(50).mean()
+        data["MA200"] = data["Close"].rolling(200).mean()
+
+        latest = data.iloc[-1]
+
+        score = 0
+        reasons = []
+
+        if latest["Close"] > latest["MA50"]:
+            score += 2
+            reasons.append("Above MA50")
+
+        if latest["Close"] > latest["MA200"]:
+            score += 3
+            reasons.append("Above MA200")
+
+        if 45 < latest["RSI"] < 65:
+            score += 2
+            reasons.append("Healthy RSI")
+
+        price = float(latest["Close"])
+
+        target = round(price * 1.04, 2)
+        stop = round(price * 0.97, 2)
+
+        if score >= 6:
+            suggestion = "BUY MORE"
+        elif score >= 4:
+            suggestion = "HOLD"
+        else:
+            suggestion = "SELL"
+
+        return price, target, stop, suggestion, ", ".join(reasons)
+
+    except:
         return None
 
-    data["RSI"] = ta.momentum.RSIIndicator(data["Close"]).rsi()
-    data["MA50"] = data["Close"].rolling(50).mean()
-    data["MA200"] = data["Close"].rolling(200).mean()
-
-    latest = data.iloc[-1]
-
-    score = 0
-    reasons = []
-
-    if latest["Close"] > latest["MA50"]:
-        score += 2
-        reasons.append("Above MA50")
-
-    if latest["Close"] > latest["MA200"]:
-        score += 3
-        reasons.append("Above MA200")
-
-    if 45 < latest["RSI"] < 65:
-        score += 2
-        reasons.append("Healthy RSI")
-
-    price = float(latest["Close"])
-
-    target = round(price * 1.04, 2)
-    stop = round(price * 0.97, 2)
-
-    if score >= 6:
-        suggestion = "BUY MORE"
-    elif score >= 4:
-        suggestion = "HOLD"
-    else:
-        suggestion = "SELL"
-
-    return price, target, stop, suggestion, ", ".join(reasons)
-
-# ADD STOCK
+# ---------------- ADD STOCK ----------------
 st.subheader("➕ Add Stock")
 
-ticker = st.text_input("Stock (e.g. RELIANCE.NS)")
+ticker = st.text_input("Stock (example: RELIANCE.NS)")
 buy_price = st.number_input("Buy Price")
 
-if st.button("Save"):
-    c.execute("INSERT INTO portfolio VALUES (?, ?)", (ticker, buy_price))
-    conn.commit()
-    st.success("Saved!")
+if st.button("Save Stock"):
+    if ticker != "":
+        c.execute("INSERT INTO portfolio VALUES (?, ?)", (ticker.upper(), buy_price))
+        conn.commit()
+        st.success("Stock Saved!")
 
-# DELETE
+# ---------------- DELETE STOCK ----------------
 st.subheader("🗑️ Delete Stock")
 
 stocks = c.execute("SELECT rowid, * FROM portfolio").fetchall()
@@ -86,34 +89,41 @@ stocks = c.execute("SELECT rowid, * FROM portfolio").fetchall()
 for row in stocks:
     col1, col2 = st.columns(2)
     col1.write(f"{row[1]} @ {row[2]}")
+
     if col2.button("Delete", key=row[0]):
         c.execute("DELETE FROM portfolio WHERE rowid=?", (row[0],))
         conn.commit()
         st.experimental_rerun()
 
-# ANALYZE
+# ---------------- PORTFOLIO ANALYSIS ----------------
 st.subheader("📊 Portfolio Analysis")
 
 rows = []
 
 for row in stocks:
-    result = analyze_stock(row[1])
+    ticker = row[1]
+    buy_price = row[2]
+
+    result = analyze_stock(ticker)
 
     if result:
         current, target, stop, suggestion, reason = result
-        pnl = round(((current - row[2]) / row[2]) * 100, 2)
+        pnl = round(((current - buy_price) / buy_price) * 100, 2)
 
         rows.append({
-            "Stock": row[1],
-            "Buy": row[2],
-            "Current": current,
+            "Stock": ticker,
+            "Buy Price": buy_price,
+            "Current Price": current,
             "P/L %": pnl,
             "Target": target,
-            "Stop": stop,
+            "Stop Loss": stop,
             "Suggestion": suggestion,
             "Reason": reason
         })
 
 df = pd.DataFrame(rows)
 
-st.dataframe(df)
+if not df.empty:
+    st.dataframe(df, use_container_width=True)
+else:
+    st.info("No stocks added yet.")
