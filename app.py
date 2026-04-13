@@ -5,7 +5,7 @@ import ta
 import sqlite3
 from streamlit_autorefresh import st_autorefresh
 
-# AUTO REFRESH
+# ---------------- AUTO REFRESH ----------------
 st_autorefresh(interval=10000, key="refresh")
 
 st.set_page_config(layout="wide")
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS portfolio (
 ''')
 conn.commit()
 
-# ---------------- ANALYSIS ----------------
+# ---------------- ANALYSIS FUNCTION ----------------
 def analyze_stock(ticker):
     try:
         data = yf.download(ticker, period="3mo", progress=False)
@@ -87,7 +87,7 @@ if st.button("🔍 Scan Market"):
         if result:
             price, target, stop, suggestion, reason, score = result
 
-            if score >= 5:  # only strong ones
+            if score >= 4:  # slightly relaxed filter
                 scan_results.append({
                     "Stock": stock,
                     "Buy Price": price,
@@ -98,11 +98,12 @@ if st.button("🔍 Scan Market"):
                     "Reason": reason
                 })
 
+    # ✅ FIXED PART (no crash)
     if len(scan_results) > 0:
-    df_scan = pd.DataFrame(scan_results).sort_values(by="Score", ascending=False)
-    st.dataframe(df_scan, use_container_width=True)
-else:
-    st.warning("No strong stocks found right now. Try again later.")
+        df_scan = pd.DataFrame(scan_results).sort_values(by="Score", ascending=False)
+        st.dataframe(df_scan, use_container_width=True)
+    else:
+        st.warning("No strong stocks found right now. Try again later.")
 
 # ---------------- ADD STOCK ----------------
 st.subheader("➕ Add Stock")
@@ -130,7 +131,7 @@ for row in stocks:
         conn.commit()
         st.experimental_rerun()
 
-# ---------------- PORTFOLIO ----------------
+# ---------------- PORTFOLIO ANALYSIS ----------------
 st.subheader("📊 Portfolio Analysis")
 
 rows = []
