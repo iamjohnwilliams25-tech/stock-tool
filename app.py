@@ -5,34 +5,42 @@ from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
 # ---------------- AUTO REFRESH ----------------
-st_autorefresh(interval=300000, key="refresh")  # 5 min
+st_autorefresh(interval=300000, key="refresh")  # 5 minutes
 
 st.set_page_config(layout="wide")
 st.title("🚀 Smart Trading Dashboard")
 
 st.caption(f"Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
+# ---------------- SAFE INDEX FUNCTION ----------------
+def get_index(symbol):
+    try:
+        data = yf.download(symbol, period="1d", interval="5m", progress=False)
+
+        if data.empty or len(data) < 2:
+            return "N/A", "N/A"
+
+        price = float(data["Close"].iloc[-1])
+        open_price = float(data["Open"].iloc[0])
+        change = round(price - open_price, 2)
+
+        return round(price, 2), change
+
+    except:
+        return "N/A", "N/A"
+
 # ---------------- MARKET OVERVIEW ----------------
 st.subheader("📊 Market Overview")
 
 col1, col2, col3 = st.columns(3)
 
-def get_index(symbol):
-    try:
-        data = yf.download(symbol, period="1d", interval="1m", progress=False)
-        price = round(data["Close"].iloc[-1], 2)
-        change = round(price - data["Open"].iloc[0], 2)
-        return price, change
-    except:
-        return "-", "-"
-
 nifty, n_change = get_index("^NSEI")
 sensex, s_change = get_index("^BSESN")
 banknifty, b_change = get_index("^NSEBANK")
 
-col1.metric("NIFTY 50", nifty, n_change)
-col2.metric("SENSEX", sensex, s_change)
-col3.metric("BANK NIFTY", banknifty, b_change)
+col1.metric("NIFTY 50", nifty, str(n_change))
+col2.metric("SENSEX", sensex, str(s_change))
+col3.metric("BANK NIFTY", banknifty, str(b_change))
 
 # Market Mood
 if isinstance(n_change, float):
@@ -69,7 +77,7 @@ def analyze_stock(ticker):
         if data.empty:
             return None
 
-        price = data["Close"].iloc[-1]
+        price = float(data["Close"].iloc[-1])
         ma20 = data["Close"].rolling(20).mean().iloc[-1]
         ma50 = data["Close"].rolling(50).mean().iloc[-1]
 
@@ -127,9 +135,9 @@ def analyze_stock(ticker):
 # ---------------- CONTROLS ----------------
 st.subheader("📊 Top Opportunities")
 
-show_top = st.radio("Select View", ["Top 10", "Top 50"])
+view = st.radio("Select View", ["Top 10", "Top 50"])
 
-if st.button("🔍 Refresh Scan"):
+if st.button("🔄 Refresh Now"):
     st.rerun()
 
 # ---------------- SCAN ----------------
@@ -144,11 +152,11 @@ with st.spinner("Analyzing market..."):
 if results:
     df = pd.DataFrame(results).sort_values(by="Confidence", ascending=False)
 
-    if show_top == "Top 10":
+    if view == "Top 10":
         df = df.head(10)
     else:
         df = df.head(50)
 
     st.dataframe(df, use_container_width=True)
 else:
-    st.error("Error loading data. Try refreshing.")
+    st.error("Error loading data. Please refresh.")
