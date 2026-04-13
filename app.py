@@ -2,11 +2,50 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 from datetime import datetime
+from streamlit_autorefresh import st_autorefresh
+
+# ---------------- AUTO REFRESH ----------------
+st_autorefresh(interval=300000, key="refresh")  # 5 min
 
 st.set_page_config(layout="wide")
-st.title("🚀 Top Short-Term Stock Picks (Auto Updated)")
+st.title("🚀 Smart Trading Dashboard")
 
-st.write(f"Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.caption(f"Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+# ---------------- MARKET OVERVIEW ----------------
+st.subheader("📊 Market Overview")
+
+col1, col2, col3 = st.columns(3)
+
+def get_index(symbol):
+    try:
+        data = yf.download(symbol, period="1d", interval="1m", progress=False)
+        price = round(data["Close"].iloc[-1], 2)
+        change = round(price - data["Open"].iloc[0], 2)
+        return price, change
+    except:
+        return "-", "-"
+
+nifty, n_change = get_index("^NSEI")
+sensex, s_change = get_index("^BSESN")
+banknifty, b_change = get_index("^NSEBANK")
+
+col1.metric("NIFTY 50", nifty, n_change)
+col2.metric("SENSEX", sensex, s_change)
+col3.metric("BANK NIFTY", banknifty, b_change)
+
+# Market Mood
+if isinstance(n_change, float):
+    if n_change > 50:
+        mood = "📈 Bullish"
+    elif n_change < -50:
+        mood = "📉 Bearish"
+    else:
+        mood = "⚖️ Neutral"
+else:
+    mood = "Loading..."
+
+st.info(f"Market Mood: {mood}")
 
 # ---------------- STOCK LIST ----------------
 stock_list = [
@@ -37,12 +76,10 @@ def analyze_stock(ticker):
         score = 0
         reasons = []
 
-        # Trend
         if price > ma50:
             score += 3
             reasons.append("Uptrend")
 
-        # Short-term momentum
         if price > ma20:
             score += 2
             reasons.append("Above MA20")
@@ -51,7 +88,6 @@ def analyze_stock(ticker):
             score += 2
             reasons.append("Momentum")
 
-        # Breakout
         recent_high = data["High"].rolling(20).max().iloc[-1]
         if price >= recent_high * 0.98:
             score += 3
@@ -59,30 +95,44 @@ def analyze_stock(ticker):
 
         confidence = min(100, score * 10)
 
-        # Buy zone (slightly below current price)
         buy_low = round(price * 0.99, 2)
         buy_high = round(price * 1.01, 2)
 
         target = round(price * 1.05, 2)
         stop = round(price * 0.95, 2)
 
+        # Risk Level
+        if confidence >= 70:
+            risk = "Low"
+        elif confidence >= 50:
+            risk = "Medium"
+        else:
+            risk = "High"
+
         return {
             "Stock": ticker,
-            "Buy Zone": f"{buy_low} - {buy_high}",
-            "Current Price": round(price, 2),
+            "Buy Zone": f"{buy_low}-{buy_high}",
+            "Price": round(price, 2),
             "Target": target,
-            "Stop Loss": stop,
-            "Confidence %": confidence,
-            "Strength": "🔥" * (confidence // 20 if confidence >= 20 else 1),
+            "Stop": stop,
+            "Confidence": confidence,
+            "Risk": risk,
+            "Strength": "🔥" * max(1, confidence // 20),
             "Reason": ", ".join(reasons)
         }
 
     except:
         return None
 
-# ---------------- MAIN ----------------
-st.subheader("📊 Top 50 Short-Term Opportunities")
+# ---------------- CONTROLS ----------------
+st.subheader("📊 Top Opportunities")
 
+show_top = st.radio("Select View", ["Top 10", "Top 50"])
+
+if st.button("🔍 Refresh Scan"):
+    st.rerun()
+
+# ---------------- SCAN ----------------
 results = []
 
 with st.spinner("Analyzing market..."):
@@ -92,14 +142,13 @@ with st.spinner("Analyzing market..."):
             results.append(res)
 
 if results:
-    df = pd.DataFrame(results)
+    df = pd.DataFrame(results).sort_values(by="Confidence", ascending=False)
 
-    # Sort by confidence
-    df = df.sort_values(by="Confidence %", ascending=False)
+    if show_top == "Top 10":
+        df = df.head(10)
+    else:
+        df = df.head(50)
 
-    # Show top 50
-    st.dataframe(df.head(50), use_container_width=True)
-
-    st.success("Showing best available short-term opportunities (ranked)")
+    st.dataframe(df, use_container_width=True)
 else:
-    st.error("Error fetching data. Please refresh.")
+    st.error("Error loading data. Try refreshing.")
